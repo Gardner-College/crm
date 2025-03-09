@@ -10,7 +10,13 @@ from io import BytesIO
 
 # Initialize Flask application
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://crm_4uxp_user:apQQwtlQnA9lxK3URcnsjaw01M77fAQF@dpg-cv25525ds78s73e5r200-a.oregon-postgres.render.com/crm_4uxp'
+
+# Preprod Database
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:admin@localhost:5432/crm'
+
+# Production Database
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://crm_4uxp_user:apQQwtlQnA9lxK3URcnsjaw01M77fAQF@dpg-cv25525ds78s73e5r200-a.oregon-postgres.render.com/crm_4uxp'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'your_secret_key'
 
@@ -30,9 +36,18 @@ class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
-    phone = db.Column(db.String(20), nullable=False)
-    company = db.Column(db.String(100), nullable=False)
-    date_added = db.Column(db.DateTime, default=db.func.current_timestamp())
+    phone = db.Column(db.String(20))
+    company = db.Column(db.String(100))
+    date_added = db.Column(db.DateTime, default=datetime.utcnow)
+    orders = db.relationship('Order', backref='customer', lazy=True)  # Relationship with Order table
+
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    product = db.Column(db.String(200), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(50), default="Pending")
+    date_ordered = db.Column(db.DateTime, default=datetime.utcnow)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -165,7 +180,8 @@ def index():
         query = query.order_by(Customer.date_added.desc())
 
     customers = query.all()
-    return render_template('index.html', customers=customers, search_query=search_query, company_filter=company_filter, date_sort=date_sort)
+    orders = Order.query.all()
+    return render_template('index.html', customers=customers, orders=orders, search_query=search_query, company_filter=company_filter, date_sort=date_sort)
 
 @app.route('/add', methods=['GET', 'POST'])
 @login_required
@@ -181,25 +197,81 @@ def add_customer():
         return redirect(url_for('index'))
     return render_template('add_customer.html')
 
-@app.route('/edit/<int:id>', methods=['GET', 'POST'])
-@login_required
-def edit_customer(id):
-    customer = Customer.query.get_or_404(id)
+
+# Edit Customer Route
+@app.route('/edit_customer/<int:customer_id>', methods=['GET', 'POST'])
+def edit_customer(customer_id):
+    customer = Customer.query.get_or_404(customer_id)
+
     if request.method == 'POST':
         customer.name = request.form['name']
         customer.email = request.form['email']
         customer.phone = request.form['phone']
         customer.company = request.form['company']
+
         db.session.commit()
+        flash("Customer updated successfully!", "success")
         return redirect(url_for('index'))
+
     return render_template('edit_customer.html', customer=customer)
 
-@app.route('/delete/<int:id>')
-@login_required
-def delete_customer(id):
-    customer = Customer.query.get_or_404(id)
+@app.route('/delete_customer/<int:customer_id>', methods=['POST'])
+def delete_customer(customer_id):
+    customer = Customer.query.get_or_404(customer_id)
+
+    # Prevent deletion if customer has existing orders
+    if customer.orders:
+        flash("Cannot delete customer with existing orders!", "danger")
+        return redirect(url_for('index'))
+
     db.session.delete(customer)
     db.session.commit()
+    flash("Customer deleted successfully!", "danger")
+    return redirect(url_for('index'))
+
+# Add Order Route
+@app.route('/add_order', methods=['GET', 'POST'])
+def add_order():
+    customers = Customer.query.all()
+    if request.method == 'POST':
+        customer_id = request.form['customer_id']
+        product = request.form['product']
+        amount = request.form['amount']
+        status = request.form['status']
+
+        new_order = Order(customer_id=customer_id, product=product, amount=amount, status=status)
+        db.session.add(new_order)
+        db.session.commit()
+        flash("Order added successfully!", "success")
+        return redirect(url_for('index'))
+
+    return render_template('add_order.html', customers=customers)
+
+# Edit Order Route
+@app.route('/edit_order/<int:order_id>', methods=['GET', 'POST'])
+def edit_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    customers = Customer.query.all()
+
+    if request.method == 'POST':
+        order.customer_id = request.form['customer_id']
+        order.product = request.form['product']
+        order.amount = request.form['amount']
+        order.status = request.form['status']
+
+        db.session.commit()
+        flash("Order updated successfully!", "success")
+        return redirect(url_for('index'))
+
+    return render_template('edit_order.html', order=order, customers=customers)
+
+# Delete Order Route
+@app.route('/delete_order/<int:order_id>', methods=['POST'])
+def delete_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    db.session.delete(order)
+    db.session.commit()
+    flash("Order deleted successfully!", "danger")
     return redirect(url_for('index'))
 
 # Route for generating reports
