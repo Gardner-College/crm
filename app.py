@@ -3,7 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import csv
-from datetime import datetime
+from datetime import datetime, UTC
 import pdfkit
 import io
 from io import BytesIO
@@ -36,9 +36,9 @@ class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
-    phone = db.Column(db.String(20))
+    phone = db.Column(db.String(50))
     company = db.Column(db.String(100))
-    date_added = db.Column(db.DateTime, default=datetime.utcnow)
+    date_added = db.Column(db.DateTime, default=datetime.now(UTC))
     orders = db.relationship('Transaction', backref='customer', lazy=True)  # Relationship with Order table
 
 class Transaction(db.Model):
@@ -47,11 +47,11 @@ class Transaction(db.Model):
     product = db.Column(db.String(200), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(50), default="Pending")
-    date_ordered = db.Column(db.DateTime, default=datetime.utcnow)
+    date_ordered = db.Column(db.DateTime, default=datetime.now(UTC))
 
 @login_manager.user_loader
 def load_user(user_id):
-    return Users.query.get(int(user_id))
+    return db.session.get(Users, int(user_id))
 
 # Create the database tables
 with app.app_context():
@@ -201,7 +201,7 @@ def add_customer():
 # Edit Customer Route
 @app.route('/edit_customer/<int:customer_id>', methods=['GET', 'POST'])
 def edit_customer(customer_id):
-    customer = Customer.query.get_or_404(customer_id)
+    customer = db.session.get(Customer, customer_id)
 
     if request.method == 'POST':
         customer.name = request.form['name']
@@ -217,7 +217,7 @@ def edit_customer(customer_id):
 
 @app.route('/delete_customer/<int:customer_id>', methods=['POST'])
 def delete_customer(customer_id):
-    customer = Customer.query.get_or_404(customer_id)
+    customer = db.session.get(Customer, customer_id)
 
     # Prevent deletion if customer has existing orders
     if customer.orders:
@@ -228,6 +228,13 @@ def delete_customer(customer_id):
     db.session.commit()
     flash("Customer deleted successfully!", "danger")
     return redirect(url_for('index'))
+
+# Route to display customers
+@app.route('/customers')
+@login_required
+def customer():
+    customers = Customer.query.order_by(Customer.date_added.desc()).all()
+    return render_template('customers.html', customers=customers)
 
 # Add Order Route
 @app.route('/add_order', methods=['GET', 'POST'])
@@ -250,7 +257,7 @@ def add_order():
 # Edit Order Route
 @app.route('/edit_order/<int:order_id>', methods=['GET', 'POST'])
 def edit_order(order_id):
-    order = Transaction.query.get_or_404(order_id)
+    order = db.session.get(Transaction, order_id)
     customers = Customer.query.all()
 
     if request.method == 'POST':
@@ -266,13 +273,20 @@ def edit_order(order_id):
     return render_template('edit_order.html', order=order, customers=customers)
 
 # Delete Order Route
-@app.route('/delete_order/<int:order_id>', methods=['POST'])
+@app.route('/delete_order/<int:order_id>', methods=['POST', 'GET'])
 def delete_order(order_id):
-    order = Transaction.query.get_or_404(order_id)
+    order = db.session.get(Transaction, order_id)
     db.session.delete(order)
     db.session.commit()
     flash("Order deleted successfully!", "danger")
     return redirect(url_for('index'))
+
+# Route to display orders
+@app.route('/orders')
+@login_required
+def order():
+    orders = Transaction.query.order_by(Transaction.date_ordered.desc()).all()
+    return render_template('orders.html', orders=orders)
 
 # Route for generating reports
 @app.route('/report')
