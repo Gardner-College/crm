@@ -39,9 +39,9 @@ class Customer(db.Model):
     phone = db.Column(db.String(20))
     company = db.Column(db.String(100))
     date_added = db.Column(db.DateTime, default=datetime.utcnow)
-    orders = db.relationship('Order', backref='customer', lazy=True)  # Relationship with Order table
+    orders = db.relationship('Transaction', backref='customer', lazy=True)  # Relationship with Order table
 
-class Order(db.Model):
+class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     product = db.Column(db.String(200), nullable=False)
@@ -180,7 +180,7 @@ def index():
         query = query.order_by(Customer.date_added.desc())
 
     customers = query.all()
-    orders = Order.query.all()
+    orders = Transaction.query.all()
     return render_template('index.html', customers=customers, orders=orders, search_query=search_query, company_filter=company_filter, date_sort=date_sort)
 
 @app.route('/add', methods=['GET', 'POST'])
@@ -239,7 +239,7 @@ def add_order():
         amount = request.form['amount']
         status = request.form['status']
 
-        new_order = Order(customer_id=customer_id, product=product, amount=amount, status=status)
+        new_order = Transaction(customer_id=customer_id, product=product, amount=amount, status=status)
         db.session.add(new_order)
         db.session.commit()
         flash("Order added successfully!", "success")
@@ -250,7 +250,7 @@ def add_order():
 # Edit Order Route
 @app.route('/edit_order/<int:order_id>', methods=['GET', 'POST'])
 def edit_order(order_id):
-    order = Order.query.get_or_404(order_id)
+    order = Transaction.query.get_or_404(order_id)
     customers = Customer.query.all()
 
     if request.method == 'POST':
@@ -268,7 +268,7 @@ def edit_order(order_id):
 # Delete Order Route
 @app.route('/delete_order/<int:order_id>', methods=['POST'])
 def delete_order(order_id):
-    order = Order.query.get_or_404(order_id)
+    order = Transaction.query.get_or_404(order_id)
     db.session.delete(order)
     db.session.commit()
     flash("Order deleted successfully!", "danger")
